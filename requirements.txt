@@ -1,0 +1,5 @@
+# PyGObject and GTK/Adwaita bindings are provided by system packages
+# Install them using the install.sh script or manually:
+#   Fedora: sudo dnf install python3-gobject gtk4 libadwaita
+#   Debian/Ubuntu: sudo apt-get install python3-gi gir1.2-gtk-4.0 gir1.2-adwaita-1
+#   Arch: sudo pacman -S python-gobject gtk4 libadwaita
