@@ -70,9 +70,9 @@ python3 src/main.py
 ```
 
 **First Run**: On first launch, the application automatically creates three distrobox containers:
-- `distrobox-debian` (Debian Bookworm)
-- `distrobox-fedora` (Fedora latest)
-- `distrobox-arch` (Arch Linux latest)
+- `vessel-debian` (Debian Bookworm)
+- `vessel-fedora` (Fedora latest)
+- `vessel-arch` (Arch Linux latest)
 
 This may take several minutes as container images are downloaded. Once complete, you can search for and install packages into any container.
 

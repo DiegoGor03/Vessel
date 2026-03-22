@@ -19,11 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class PackageManagerApp(Adw.ApplicationWindow):
-    """Main GNOME Software-like package manager window."""
-
-    # Modes for the main list area
-    MODE_SEARCH = "search"
-    MODE_APPS = "apps"
+    """Unified package manager window."""
 
     def __init__(self, app):
         super().__init__(application=app)
@@ -33,7 +29,8 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.distrobox_manager = DistroboxManager()
         self.package_manager = PackageManager()
         self.containers: List[Container] = []
-        self._mode = self.MODE_SEARCH
+
+        self._filter = "all"  # "all" or "installed"
 
         self._build_ui()
         self.connect("show", self._on_show)
@@ -49,10 +46,13 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.update_button.connect("clicked", self._on_update_clicked)
         header_bar.pack_end(self.update_button)
 
-        # Toggle between Apps view and Search view
-        self.apps_button = Gtk.ToggleButton(label="Apps")
-        self.apps_button.connect("toggled", self._on_apps_toggled)
-        header_bar.pack_end(self.apps_button)
+        # Filter dropdown (Select between all packages and installed packages)
+        self.filter_dropdown = Gtk.DropDown.new_from_strings([
+            "All Packages",
+            "Installed"
+        ])
+        self.filter_dropdown.connect("notify::selected", self._on_filter_changed)
+        header_bar.pack_end(self.filter_dropdown)
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         main_box.append(header_bar)
@@ -63,9 +63,10 @@ class PackageManagerApp(Adw.ApplicationWindow):
         right_box.set_margin_top(10)
         right_box.set_margin_bottom(10)
 
-        # Search box — hidden in apps mode
+        # Search box
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search packages...")
+        #search on enter with "activate" signal or live search with "search-changed" signal
         self.search_entry.connect("activate", self._on_search_changed)
         right_box.append(self.search_entry)
 
@@ -124,42 +125,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
 
         main_box.append(right_box)
         self.set_content(main_box)
-
-    # ------------------------------------------------------------------ #
-    #  Mode switching                                                       #
-    # ------------------------------------------------------------------ #
-
-    def _on_apps_toggled(self, button):
-        if button.get_active():
-            self._enter_apps_mode()
-        else:
-            self._enter_search_mode()
-
-    def _enter_apps_mode(self):
-        self._mode = self.MODE_APPS
-        self.search_entry.set_visible(False)
-        self.install_button.set_visible(False)
-        self.export_button.set_visible(True)
-        self._clear_list()
-        self._update_package_info(None)
-        self.package_name_label.set_markup("<b>Loading apps…</b>")
-
-        def fetch():
-            apps = self.package_manager.get_apps_all_containers(
-                [{"name": c.name, "distro": c.distro} for c in self.containers]
-            )
-            GLib.idle_add(self._display_apps, apps)
-
-        import threading
-        threading.Thread(target=fetch, daemon=True).start()
-
-    def _enter_search_mode(self):
-        self._mode = self.MODE_SEARCH
-        self.search_entry.set_visible(True)
-        self.install_button.set_visible(True)
-        self.export_button.set_visible(False)
-        self._clear_list()
-        self._update_package_info(None)
 
     # ------------------------------------------------------------------ #
     #  Initialisation                                                       #
@@ -225,7 +190,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                         ["distrobox", "upgrade", container.name],
                         capture_output=True,
                         text=True,
-                        timeout=600,
+                        timeout=1200,
                     )
                     if result.returncode != 0:
                         errors.append(f"{container.name}: {result.stderr.strip()}")
@@ -248,51 +213,79 @@ class PackageManagerApp(Adw.ApplicationWindow):
         threading.Thread(target=update, daemon=True).start()
 
     # ------------------------------------------------------------------ #
-    #  Search mode                                                          #
+    #  Search mode + filter                                                 #
     # ------------------------------------------------------------------ #
+    
+    def _on_filter_changed(self, dropdown, _):
+        self._filter = "installed" if dropdown.get_selected() == 1 else "all"
+        self._clear_list()
+        self._update_package_info(None)
+
+        if self._filter == "installed":
+            self._load_installed()
+
+    def _load_installed(self):
+        def load():
+            try:
+                results = self.package_manager.get_apps_all_containers(
+                    [{"name": c.name, "distro": c.distro} for c in self.containers]
+                )
+                #note: worth rewatching
+                for r in results:
+                    r.is_installed = True
+                    r.has_desktop_entry = True
+                GLib.idle_add(self._display_packages, results)
+            except Exception as e:
+                logger.error(e)
+
+        import threading
+        threading.Thread(target=load, daemon=True).start()
 
     def _on_search_changed(self, entry):
         query = entry.get_text()
-        if len(query) < 2:
-            self._clear_list()
-            return
 
         def search():
             try:
-                packages = self.package_manager.search_packages_all_containers(
-                    query,
-                    [{"name": c.name, "distro": c.distro} for c in self.containers]
-                )
-                GLib.idle_add(self._display_packages, packages)
+                if self._filter == "installed":
+                    results = self.package_manager.get_apps_all_containers(
+                        [{"name": c.name, "distro": c.distro} for c in self.containers]
+                    )
+                    results = [r for r in results if query.lower() in r.name.lower()]
+                    for r in results:
+                        r.is_installed = True
+                        r.has_desktop_entry = True
+                else:
+                    if len(query) < 2:
+                        GLib.idle_add(self._clear_list)
+                        return
+                    results = self.package_manager.search_packages_all_containers(
+                        query,
+                        [{"name": c.name, "distro": c.distro} for c in self.containers]
+                    )
+                    for r in results:
+                        r.is_installed = False
+                        r.has_desktop_entry = False
+
+                GLib.idle_add(self._display_packages, results)
+
             except Exception as e:
-                logger.error(f"Error searching packages: {e}")
+                logger.error(e)
 
         import threading
         threading.Thread(target=search, daemon=True).start()
 
     def _display_packages(self, packages: List[Package]):
         self._clear_list()
-        for package in packages:
+        for pkg in packages:
             row = Adw.ActionRow()
-            row.set_title(package.name)
-            row.set_subtitle(package.distro)
-            row.package = package
-            row.app = None
-            self.packages_list.append(row)
+            row.set_title(pkg.name)
 
-    # ------------------------------------------------------------------ #
-    #  Apps mode                                                            #
-    # ------------------------------------------------------------------ #
+            subtitle = pkg.container
+            if getattr(pkg, "is_installed", False):
+                subtitle += " · Installed"
 
-    def _display_apps(self, apps):
-        self._clear_list()
-        self.package_name_label.set_markup("<b>Select an app</b>")
-        for app in apps:
-            row = Adw.ActionRow()
-            row.set_title(app.name)
-            row.set_subtitle(f"{app.container} · {'On host' if app.is_on_host else 'Not on host'}")
-            row.package = None
-            row.app = app
+            row.set_subtitle(subtitle)
+            row.pkg = pkg
             self.packages_list.append(row)
 
     # ------------------------------------------------------------------ #
@@ -300,50 +293,28 @@ class PackageManagerApp(Adw.ApplicationWindow):
     # ------------------------------------------------------------------ #
 
     def _on_row_selected(self, listbox, row):
-        if row is None:
+        if not row:
             return
 
-        if self._mode == self.MODE_APPS:
-            self._on_app_row_selected(row)
+        pkg = row.pkg
+
+        self.package_name_label.set_markup(
+            f"<b>{pkg.name}</b> ({pkg.distro})"
+        )
+
+        if getattr(pkg, "has_desktop_entry", False):
+            self.package_desc_label.set_text(f"Exec: {getattr(pkg, 'exec_name', '')}")
         else:
-            self._on_package_row_selected(row)
+            self.package_desc_label.set_text("Loading details...")
 
-    def _on_package_row_selected(self, row):
-        package = row.package
-        self.package_name_label.set_markup(f"<b>{package.name}</b> ({package.distro})")
-        self.package_desc_label.set_text("Loading details...")
-        self.install_button.set_sensitive(False)
-        self.remove_button.set_sensitive(False)
+        self.install_button.set_sensitive(not pkg.is_installed)
+        self.remove_button.set_sensitive(pkg.is_installed)
 
-        def fetch_info():
-            detailed = self.package_manager.get_package_info(
-                package.name, package.container, package.distro
-            )
-            GLib.idle_add(self._update_package_info, detailed or package)
-            GLib.idle_add(lambda: self.install_button.set_sensitive(True))
-            GLib.idle_add(lambda: self.remove_button.set_sensitive(True))
-
-        import threading
-        threading.Thread(target=fetch_info, daemon=True).start()
-
-    def _on_app_row_selected(self, row):
-        app = row.app
-        self.package_name_label.set_markup(f"<b>{app.name}</b> ({app.container})")
-        self.package_desc_label.set_text(f"Exec: {app.exec_name}")
-        # Install is always grayed out in apps mode
-        self.install_button.set_sensitive(False)
-        # Remove uninstalls from the container
-        self.remove_button.set_sensitive(True)
-        # Export button label reflects current state
-        if app.is_on_host:
-            self.export_button.set_label("Remove from host")
-            self.export_button.remove_css_class("suggested-action")
-            self.export_button.add_css_class("destructive-action")
+        if getattr(pkg, "has_desktop_entry", False):
+            self.export_button.set_visible(True)
+            self.export_button.set_sensitive(True)
         else:
-            self.export_button.set_label("Add to host")
-            self.export_button.add_css_class("suggested-action")
-            self.export_button.remove_css_class("destructive-action")
-        self.export_button.set_sensitive(True)
+            self.export_button.set_visible(False)
 
     # ------------------------------------------------------------------ #
     #  Install / Remove / Export actions                                    #
@@ -351,9 +322,9 @@ class PackageManagerApp(Adw.ApplicationWindow):
 
     def _on_install_clicked(self, button):
         row = self.packages_list.get_selected_row()
-        if row is None or not row.package:
+        if row is None or not row.pkg:
             return
-        package = row.package
+        package = row.pkg
         button.set_sensitive(False)
 
         def install():
@@ -363,6 +334,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 )
                 if success:
                     GLib.idle_add(self._show_info_dialog, "Package installed successfully")
+                    GLib.idle_add(self._refresh_current_view)
                 else:
                     GLib.idle_add(self._show_error_dialog, "Failed to install package")
             except Exception as e:
@@ -380,67 +352,47 @@ class PackageManagerApp(Adw.ApplicationWindow):
             return
         button.set_sensitive(False)
 
-        if self._mode == self.MODE_APPS:
-            app = row.app
+        pkg = row.pkg
 
-            def remove_app():
-                try:
-                    success = self.package_manager.remove_package(
-                        app.desktop_file, app.container,
-                        # find the distro for this container
-                        next((c.distro for c in self.containers if c.name == app.container), "debian")
-                    )
-                    if success:
-                        GLib.idle_add(self._show_info_dialog, "App removed successfully")
-                        GLib.idle_add(self._enter_apps_mode)  # refresh list
-                    else:
-                        GLib.idle_add(self._show_error_dialog, "Failed to remove app")
-                except Exception as e:
-                    logger.error(f"Error removing app: {e}")
-                    GLib.idle_add(self._show_error_dialog, str(e))
-                finally:
-                    GLib.idle_add(lambda: button.set_sensitive(True))
+        def remove():
+            try:
+                success = self.package_manager.remove_package(
+                    getattr(pkg, "desktop_file", pkg.name),
+                    pkg.container,
+                    pkg.distro
+                )
 
-            import threading
-            threading.Thread(target=remove_app, daemon=True).start()
-        else:
-            package = row.package
-
-            def remove_pkg():
-                try:
-                    success = self.package_manager.remove_package(
-                        package.name, package.container, package.distro
-                    )
-                    if success:
-                        GLib.idle_add(self._show_info_dialog, "Package removed successfully")
-                    else:
-                        GLib.idle_add(self._show_error_dialog, "Failed to remove package")
-                except Exception as e:
-                    logger.error(f"Error removing package: {e}")
-                    GLib.idle_add(self._show_error_dialog, str(e))
-                finally:
-                    GLib.idle_add(lambda: button.set_sensitive(True))
+                if success:
+                    GLib.idle_add(self._show_info_dialog, "App removed successfully")
+                    GLib.idle_add(self._refresh_current_view)  # refresh list
+                else:
+                    GLib.idle_add(self._show_error_dialog, "Failed to remove app")
+            except Exception as e:
+                logger.error(f"Error removing app: {e}")
+                GLib.idle_add(self._show_error_dialog, str(e))
+            finally:
+                GLib.idle_add(lambda: button.set_sensitive(True))
 
             import threading
-            threading.Thread(target=remove_pkg, daemon=True).start()
+            threading.Thread(target=remove, daemon=True).start()
 
     def _on_export_clicked(self, button):
         row = self.packages_list.get_selected_row()
-        if row is None or not row.app:
+        if not row:
             return
-        app = row.app
+        pkg = row.pkg
         button.set_sensitive(False)
 
         def do_export():
-            if app.is_on_host:
-                self.package_manager._unexport_package(app.desktop_file, app.container)
+            if getattr(pkg, "is_on_host", False):
+                self.package_manager._unexport_package(pkg.desktop_file, pkg.container)
             else:
-                self.package_manager._export_package(app.desktop_file, app.container)
+                self.package_manager._export_package(pkg.desktop_file, pkg.container)
             # Flip the state and refresh the row subtitle and button
-            app.is_on_host = not app.is_on_host
+            pkg.is_on_host = not pkg.is_on_host
             GLib.idle_add(self._on_app_row_selected, row)
             GLib.idle_add(lambda: row.set_subtitle(
-                f"{app.container} · {'On host' if app.is_on_host else 'Not on host'}"
+                f"{pkg.container} · {'On host' if pkg.is_on_host else 'Not on host'}"
             ))
 
         import threading
@@ -449,6 +401,18 @@ class PackageManagerApp(Adw.ApplicationWindow):
     # ------------------------------------------------------------------ #
     #  Helpers                                                              #
     # ------------------------------------------------------------------ #
+
+    def _refresh_current_view(self):
+        self._clear_list()
+        self._update_package_info(None)
+
+        if self._filter == "installed":
+            self._load_installed()
+        else:
+            # re-trigger search with current query
+            query = self.search_entry.get_text()
+            if len(query) >= 2:
+                self._on_search_changed(self.search_entry)
 
     def _clear_list(self):
         while True:

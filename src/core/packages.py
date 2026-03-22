@@ -16,28 +16,17 @@ class Package:
     name: str
     version: str
     description: str
-    container: str
+    exec_name: str
     distro: str
+    container: str
+    icon: str
+    desktop_file: str
     installed: bool = False
     size: str = "N/A"
     
     def __repr__(self):
         return f"Package({self.name}, v{self.version}, distro={self.distro})"
     
-@dataclass
-class ContainerApp:
-    """Represents a GUI application found inside a container."""
-    name: str
-    exec_name: str
-    icon: str
-    desktop_file: str   # basename without .desktop
-    container: str
-    is_on_host: bool = False  # True if already exported to the host
- 
-    def __repr__(self):
-        return f"ContainerApp({self.name}, container={self.container}, on_host={self.is_on_host})"
-
-
 class PackageManager:
     """Manages package discovery and operations across containers."""
     
@@ -90,8 +79,8 @@ class PackageManager:
         # Timeout settings (in seconds) for various operations
         self.TIMEOUT_SEARCH = 60      # Package search can be slow
         self.TIMEOUT_INFO = 45        # Getting package info
-        self.TIMEOUT_INSTALL = 300    # Installation can take a while
-        self.TIMEOUT_REMOVE = 120     # Removal operation
+        self.TIMEOUT_INSTALL = 1200   # Installation can take a while
+        self.TIMEOUT_REMOVE = 1200     # Removal operation
     
     def _run_in_container(
         self,
@@ -158,7 +147,7 @@ class PackageManager:
         elif distro == "arch":
             packages = self._parse_arch_search(output, query_lower, container_name)
         
-        logger.info(f"Found {len(packages)} packages matching '{query}' in {container_name}")
+        logger.info(f"Found {len(packages)} packages matching '{query}' in {container_name}, distro: {distro}")
         return packages
     
     def _parse_debian_search(self, output: str, query_lower: str, container_name: str) -> List[Package]:
@@ -193,8 +182,11 @@ class PackageManager:
                     name=pkg_name,
                     version="N/A",
                     description=description,
+                    exec_name="",
                     container=container_name,
                     distro=distro,
+                    icon="",
+                    desktop_file="",
                     installed=False,
                 ))
             except Exception as e:
@@ -228,10 +220,13 @@ class PackageManager:
                     packages.append(Package(
                         name=pkg_name,
                         version="N/A",
-                        description=pkg_desc,
+                        exec_name="",
+                        description="",
                         container=container_name,
                         distro=distro,
-                        installed=False
+                        icon="",
+                        desktop_file="",
+                        installed=False,
                     ))
             except Exception as e:
                 logger.debug(f"Error parsing Fedora package line: {e}")
@@ -263,10 +258,13 @@ class PackageManager:
                     packages.append(Package(
                         name=pkg_name,
                         version="N/A",
-                        description=pkg_desc,
+                        exec_name="",
+                        description="",
                         container=container_name,
                         distro=distro,
-                        installed=False
+                        icon="",
+                        desktop_file="",
+                        installed=False,
                     ))
             except Exception as e:
                 logger.debug(f"Error parsing Arch package line: {e}")
@@ -487,18 +485,9 @@ class PackageManager:
                 except Exception as e:
                     logger.error(f"Error searching packages: {e}")
         
-        # Remove duplicates by name, keeping the first occurrence
-        seen_names: Set[str] = set()
-        unique_packages = []
-        
-        for pkg in all_packages:
-            if pkg.name not in seen_names:
-                seen_names.add(pkg.name)
-                unique_packages.append(pkg)
-        
-        return unique_packages
+        return all_packages
 
-    def get_apps_in_container(self, container_name: str) -> List["ContainerApp"]:
+    def get_apps_in_container(self, container_name: str) -> List["Package"]:
         """Return GUI apps installed inside a container by scanning .desktop files.
 
         Mirrors the Rust get_apps_in_box logic:
@@ -553,13 +542,13 @@ class PackageManager:
             desktop_file = line.replace("/usr/share/applications/", "").replace(".desktop", "")
             host_desktop_name = f"{container_name}-{desktop_file}.desktop"
 
-            apps.append(ContainerApp(
+            apps.append(Package(
                 name=name,
                 exec_name=exec_name,
                 icon=icon,
                 desktop_file=desktop_file,
                 container=container_name,
-                is_on_host=host_desktop_name in host_desktop_files,
+                installed=True,
             ))
 
         logger.info(f"Found {len(apps)} apps in {container_name}")
@@ -567,7 +556,7 @@ class PackageManager:
     
     def get_apps_all_containers(
         self, containers: List[Dict[str, str]]
-    ) -> List["ContainerApp"]:
+    ) -> List["Package"]:
         """Fetch installed GUI apps from all containers in parallel."""
         all_apps = []
         with ThreadPoolExecutor(max_workers=3) as executor:
