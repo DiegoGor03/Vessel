@@ -3,14 +3,14 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "distrobox-packagemanager"
+name = "Vessel"
 version = "0.1.0"
-description = "GNOME Software-like package manager for distrobox containers"
+description = "A unified package manager that bridges Distrobox and Flatpak — install anything, run anywhere."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "GPL3"}
 authors = [
-    {name = "Diego", email = "diego@example.com"}
+    {name = "Diego"}
 ]
 
 dependencies = [
@@ -21,7 +21,7 @@ dependencies = [
 distrobox-packagemanager = "src.main:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/distrobox-packagemanager"
+Homepage = "https://github.com/DiegoGor03/Vessel"
 
 [tool.setuptools]
 packages = ["src", "src.core", "src.ui"]
