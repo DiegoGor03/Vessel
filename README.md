@@ -1,6 +1,6 @@
 # DistroBox Package Manager
 
-A GNOME Software-like package manager that interfaces with distrobox containers.
+A unified package manager that bridges Distrobox and Flatpak — install anything, run anywhere.
 
 # NOTE: AS IS STILL IN AN ALPHA STATE. USE WITH CAUTION
 
