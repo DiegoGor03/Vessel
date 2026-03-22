@@ -1,6 +1,6 @@
 # DistroBox Package Manager
 
-Vessel is a unified package manager for Linux that seamlessly integrates Distrobox and Flatpak under a single interface. Whether you need a containerized environment from any distro or a sandboxed Flatpak app, Vessel handles it with one consistent set of commands. Stop juggling tools — just install and go.
+Vessel is a unified UI for Linux that seamlessly integrates Distrobox and Flatpak under a single interface. Whether you need a containerized environment from any distro or a sandboxed Flatpak app, Vessel handles it with one consistent set of commands. Stop juggling tools — just install and go.
 
 # NOTE: AS IS STILL IN AN ALPHA STATE. USE WITH CAUTION
 
