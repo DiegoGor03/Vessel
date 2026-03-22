@@ -102,4 +102,15 @@ src/
 
 ## License
 
-MIT
+GPL3
+
+## To do
+- [ ] update button
+- [ ] flatpak integration
+- [ ] group packages
+- [ ] clean up search results
+- [ ] rank results (eg. popularity)
+- [ ] list installed packages
+- [ ] ability to choose which distros you use
+- [ ] packages icons
+- [ ] pacman bug
