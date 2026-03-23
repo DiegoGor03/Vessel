@@ -372,7 +372,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
             try:
                 if self._filter == "installed":
                     success = self.package_manager.remove_app(pkg) #pkg is app type 
-                else
+                else:
                     success = self.package_manager.remove_package(
                         pkg.name, pkg.container, package.distro                    
                     )
