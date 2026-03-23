@@ -229,7 +229,7 @@ class PackageManager:
                         version="N/A",
                         description=pkg_desc,
                         container=container_name,
-                        distro=distro
+                        distro=distro,
                         installed=False,
                     ))
             except Exception as e:
@@ -264,7 +264,7 @@ class PackageManager:
                         version="N/A",
                         description=pkg_desc,
                         container=container_name,
-                        distro=distro
+                        distro=distro,
                         installed=False,
                     ))
             except Exception as e:
