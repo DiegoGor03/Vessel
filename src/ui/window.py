@@ -67,7 +67,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search packages...")
         #search on enter with "activate" signal or live search with "search-changed" signal
-        self.search_entry.connect("activate", self._on_search_changed)
+        self.search_entry.connect("search-changed", self._on_search_changed)
         right_box.append(self.search_entry)
 
         # Package info frame
@@ -230,10 +230,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 results = self.package_manager.get_apps_all_containers(
                     [{"name": c.name, "distro": c.distro} for c in self.containers]
                 )
-                #note: worth rewatching
-                for r in results:
-                    r.is_installed = True
-                    r.has_desktop_entry = True
+                
                 GLib.idle_add(self._display_packages, results)
             except Exception as e:
                 logger.error(e)
@@ -251,9 +248,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
                         [{"name": c.name, "distro": c.distro} for c in self.containers]
                     )
                     results = [r for r in results if query.lower() in r.name.lower()]
-                    for r in results:
-                        r.is_installed = True
-                        r.has_desktop_entry = True
                 else:
                     if len(query) < 2:
                         GLib.idle_add(self._clear_list)
@@ -262,9 +256,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
                         query,
                         [{"name": c.name, "distro": c.distro} for c in self.containers]
                     )
-                    for r in results:
-                        r.is_installed = False
-                        r.has_desktop_entry = False
 
                 GLib.idle_add(self._display_packages, results)
 
@@ -275,16 +266,18 @@ class PackageManagerApp(Adw.ApplicationWindow):
         threading.Thread(target=search, daemon=True).start()
 
     def _display_packages(self, packages: List[Package]):
+        #used for packages and "apps"
         self._clear_list()
         for pkg in packages:
             row = Adw.ActionRow()
             row.set_title(pkg.name)
+            
+            #the idea is good, will be implemented as in the packages view, maybe as a color
+            #subtitle = pkg.container
+            #if getattr(pkg, "is_installed", False):
+            #    subtitle += " · Installed"
 
-            subtitle = pkg.container
-            if getattr(pkg, "is_installed", False):
-                subtitle += " · Installed"
-
-            row.set_subtitle(subtitle)
+            row.set_subtitle(package.distro)
             row.pkg = pkg
             self.packages_list.append(row)
 
@@ -292,29 +285,49 @@ class PackageManagerApp(Adw.ApplicationWindow):
     #  Shared row selection                                                 #
     # ------------------------------------------------------------------ #
 
-    def _on_row_selected(self, listbox, row):
+    def _on_row_selected(self, listbox, row, dropdown):
         if not row:
             return
 
         pkg = row.pkg
 
+        self._filter = "installed" if dropdown.get_selected() == 1 else "all"
+
         self.package_name_label.set_markup(
             f"<b>{pkg.name}</b> ({pkg.distro})"
         )
 
-        if getattr(pkg, "has_desktop_entry", False):
-            self.package_desc_label.set_text(f"Exec: {getattr(pkg, 'exec_name', '')}")
-        else:
-            self.package_desc_label.set_text("Loading details...")
-
-        self.install_button.set_sensitive(not pkg.is_installed)
-        self.remove_button.set_sensitive(pkg.is_installed)
-
-        if getattr(pkg, "has_desktop_entry", False):
-            self.export_button.set_visible(True)
+        if self._filter == "installed":
+            self.package_desc_label.set_text(f"Exec: {app.exec_name}")
+            # Install is always grayed out in apps mode
+            self.install_button.set_sensitive(False)
+            # Remove uninstalls from the container
+            self.remove_button.set_sensitive(True)
+            # Export button label reflects current state
+            if app.is_on_host:
+                self.export_button.set_label("Remove from host")
+                self.export_button.remove_css_class("suggested-action")
+                self.export_button.add_css_class("destructive-action")
+            else:
+                self.export_button.set_label("Add to host")
+                self.export_button.add_css_class("suggested-action")
+                self.export_button.remove_css_class("destructive-action")
             self.export_button.set_sensitive(True)
         else:
-            self.export_button.set_visible(False)
+            self.package_desc_label.set_text("Loading details...")
+            self.install_button.set_sensitive(False)
+            self.remove_button.set_sensitive(False)
+
+            def fetch_info():
+                detailed = self.package_manager.get_package_info(
+                    package.name, package.container, package.distro
+                )
+                GLib.idle_add(self._update_package_info, detailed or package)
+                GLib.idle_add(lambda: self.install_button.set_sensitive(True))
+                GLib.idle_add(lambda: self.remove_button.set_sensitive(True))
+
+            import threading
+            threading.Thread(target=fetch_info, daemon=True).start()
 
     # ------------------------------------------------------------------ #
     #  Install / Remove / Export actions                                    #
@@ -346,22 +359,23 @@ class PackageManagerApp(Adw.ApplicationWindow):
         import threading
         threading.Thread(target=install, daemon=True).start()
 
-    def _on_remove_clicked(self, button):
+    def _on_remove_clicked(self, button, dropdown):
         row = self.packages_list.get_selected_row()
         if row is None:
             return
         button.set_sensitive(False)
 
         pkg = row.pkg
+        self._filter = "installed" if dropdown.get_selected() == 1 else "all"
 
         def remove():
             try:
-                success = self.package_manager.remove_package(
-                    getattr(pkg, "desktop_file", pkg.name),
-                    pkg.container,
-                    pkg.distro
-                )
-
+                if self._filter == "installed":
+                    success = self.package_manager.remove_app(pkg) #pkg is app type 
+                else
+                    success = self.package_manager.remove_package(
+                        pkg.name, pkg.container, package.distro                    
+                    )
                 if success:
                     GLib.idle_add(self._show_info_dialog, "App removed successfully")
                     GLib.idle_add(self._refresh_current_view)  # refresh list
