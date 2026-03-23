@@ -16,16 +16,26 @@ class Package:
     name: str
     version: str
     description: str
-    exec_name: str
-    distro: str
     container: str
-    icon: str
-    desktop_file: str
+    distro: str
     installed: bool = False
     size: str = "N/A"
     
     def __repr__(self):
         return f"Package({self.name}, v{self.version}, distro={self.distro})"
+    
+@dataclass
+class ContainerApp:
+    """Represents a GUI application found inside a container."""
+    name: str
+    exec_name: str
+    icon: str
+    desktop_file: str   # basename without .desktop
+    container: str
+    is_on_host: bool = False  # True if already exported to the host
+ 
+    def __repr__(self):
+        return f"ContainerApp({self.name}, container={self.container}, on_host={self.is_on_host})"
     
 class PackageManager:
     """Manages package discovery and operations across containers."""
@@ -169,7 +179,7 @@ class PackageManager:
                 if ' - ' in line:
                     pkg_name, description = line.split(' - ', 1)
                     pkg_name = pkg_name.strip()
-                    description = description.strip()
+                    pkg_desc = description.strip()
                 else:
                     pkg_name = line
                     description = ""
@@ -181,12 +191,9 @@ class PackageManager:
                 packages.append(Package(
                     name=pkg_name,
                     version="N/A",
-                    description=description,
-                    exec_name="",
+                    description=pkg_desc,
                     container=container_name,
                     distro=distro,
-                    icon="",
-                    desktop_file="",
                     installed=False,
                 ))
             except Exception as e:
@@ -220,12 +227,9 @@ class PackageManager:
                     packages.append(Package(
                         name=pkg_name,
                         version="N/A",
-                        exec_name="",
-                        description="",
+                        description=pkg_desc,
                         container=container_name,
-                        distro=distro,
-                        icon="",
-                        desktop_file="",
+                        distro=distro
                         installed=False,
                     ))
             except Exception as e:
@@ -258,12 +262,9 @@ class PackageManager:
                     packages.append(Package(
                         name=pkg_name,
                         version="N/A",
-                        exec_name="",
-                        description="",
+                        description=pkg_desc,
                         container=container_name,
-                        distro=distro,
-                        icon="",
-                        desktop_file="",
+                        distro=distro
                         installed=False,
                     ))
             except Exception as e:
@@ -366,6 +367,7 @@ class PackageManager:
             )
 
     def _find_desktop_file(self, package_name: str, container_name: str) -> Optional[str]:
+        #used for export/unexport if package name not found (e.g. libreoffice-math)
         """Find the .desktop file path inside the container for a given package.
         
         Tries distro package manager queries first (most reliable), then falls
@@ -408,6 +410,47 @@ class PackageManager:
         
         return None
  
+    def get_package_for_app(
+        self,
+        app: ContainerApp
+    ) -> Optional[str]:
+        """Find the package name that owns a ContainerApp's .desktop file."""
+        desktop_path = f"/usr/share/applications/{app.desktop_file}.desktop"
+        
+        #it finds the package given a .desktop file name
+        # Each tuple: (distro, command that prints 'pkgname' given a file path)
+        owner_cmds = [
+            ("debian", ["dpkg", "-S", desktop_path]),
+            ("fedora", ["rpm", "-qf", desktop_path]),
+            ("arch",   ["pacman", "-Qo", desktop_path]),
+        ]
+
+        for target_distro, cmd in owner_cmds:
+            if app.distro != target_distro:
+                continue
+            output = self._run_in_container(app.container, cmd, timeout=15)
+            if not output:
+                continue
+
+            if app.distro == "debian":
+                # Output: "libreoffice-math: /usr/share/applications/libreoffice-math.desktop"
+                pkg = output.split(":")[0].strip()
+                # Strip any arch qualifier (e.g. "vim:amd64" → "vim")
+                pkg = pkg.split(":")[0].strip()
+                return pkg
+
+            elif app.distro == "fedora":
+                # Output: "libreoffice-math-7.x86_64"
+                return self._strip_arch(output.strip().split()[0])
+
+            elif app.distro == "arch":
+                # Output: "/usr/share/applications/libreoffice-math.desktop is owned by libreoffice-fresh 24.x"
+                parts = output.strip().split("owned by")
+                if len(parts) == 2:
+                    return parts[1].strip().split()[0]
+
+        return None
+
     def remove_package(
         self,
         package_name: str,
@@ -438,6 +481,20 @@ class PackageManager:
             logger.error(f"Failed to remove {package_name}")
         
         return success
+
+    def remove_app(self, app: ContainerApp) -> bool:
+        """Remove an app by resolving its owning package first."""
+        pkg_name = self.get_package_for_app(app)
+
+        if pkg_name is None:
+            # Last resort: desktop_file basename is often the package name
+            logger.warning(
+                f"Could not resolve package for {app.name}, "
+                f"falling back to desktop_file name: {app.desktop_file}"
+            )
+            pkg_name = app.desktop_file
+
+        return self.remove_package(pkg_name, app.container, app.distro)
     
     def _unexport_package(self, package_name: str, container_name: str):
         """Remove the host-side desktop entry for a package before uninstalling it."""
