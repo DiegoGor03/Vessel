@@ -105,7 +105,7 @@ src/
 GPL3
 
 ## To do
-- [ ] update button
+- [x] update button
 - [ ] flatpak integration
 - [ ] group packages
 - [ ] clean up search results
