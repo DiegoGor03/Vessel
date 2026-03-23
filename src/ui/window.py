@@ -277,7 +277,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
             #if getattr(pkg, "is_installed", False):
             #    subtitle += " · Installed"
 
-            row.set_subtitle(package.distro)
+            row.set_subtitle(pkg.distro)
             row.pkg = pkg
             self.packages_list.append(row)
 
