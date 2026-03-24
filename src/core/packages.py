@@ -32,6 +32,7 @@ class ContainerApp:
     icon: str
     desktop_file: str   # basename without .desktop
     container: str
+    distro: str
     is_on_host: bool = False  # True if already exported to the host
  
     def __repr__(self):
@@ -544,7 +545,7 @@ class PackageManager:
         
         return all_packages
 
-    def get_apps_in_container(self, container_name: str) -> List["Package"]:
+    def get_apps_in_container(self, container_name: str, distro: str) -> List["Package"]:
         """Return GUI apps installed inside a container by scanning .desktop files.
 
         Mirrors the Rust get_apps_in_box logic:
@@ -599,13 +600,14 @@ class PackageManager:
             desktop_file = line.replace("/usr/share/applications/", "").replace(".desktop", "")
             host_desktop_name = f"{container_name}-{desktop_file}.desktop"
 
-            apps.append(Package(
+            apps.append(ContainerApp(
                 name=name,
                 exec_name=exec_name,
                 icon=icon,
                 desktop_file=desktop_file,
                 container=container_name,
-                installed=True,
+                distro=distro,
+                is_on_host=host_desktop_name in host_desktop_files,
             ))
 
         logger.info(f"Found {len(apps)} apps in {container_name}")
@@ -618,7 +620,7 @@ class PackageManager:
         all_apps = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
-                executor.submit(self.get_apps_in_container, c["name"]): c
+                executor.submit(self.get_apps_in_container, c["name"], c["distro"]): c
                 for c in containers
             }
             for future in as_completed(futures):
