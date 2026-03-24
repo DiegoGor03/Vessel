@@ -110,7 +110,7 @@ GPL3
 - [ ] group packages
 - [ ] clean up search results
 - [ ] rank results (eg. popularity)
-- [ ] list installed packages
+- [x] list installed packages
 - [ ] ability to choose which distros you use
 - [ ] packages icons
 - [ ] pacman bug
