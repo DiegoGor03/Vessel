@@ -285,20 +285,18 @@ class PackageManagerApp(Adw.ApplicationWindow):
     #  Shared row selection                                                 #
     # ------------------------------------------------------------------ #
 
-    def _on_row_selected(self, listbox, row, dropdown):
+    def _on_row_selected(self, listbox, row):
         if not row:
             return
 
         pkg = row.pkg
 
-        self._filter = "installed" if dropdown.get_selected() == 1 else "all"
-
         self.package_name_label.set_markup(
             f"<b>{pkg.name}</b> ({pkg.distro})"
         )
 
-        if self._filter == "installed":
-            self.package_desc_label.set_text(f"Exec: {app.exec_name}")
+        if hasattr(pkg, "is_on_host"):
+            self.package_desc_label.set_text(f"Exec: {pkg.exec_name}")
             # Install is always grayed out in apps mode
             self.install_button.set_sensitive(False)
             # Remove uninstalls from the container
@@ -320,7 +318,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
 
             def fetch_info():
                 detailed = self.package_manager.get_package_info(
-                    package.name, package.container, package.distro
+                    pkg.name, pkg.container, pkg.distro
                 )
                 GLib.idle_add(self._update_package_info, detailed or package)
                 GLib.idle_add(lambda: self.install_button.set_sensitive(True))
@@ -359,18 +357,17 @@ class PackageManagerApp(Adw.ApplicationWindow):
         import threading
         threading.Thread(target=install, daemon=True).start()
 
-    def _on_remove_clicked(self, button, dropdown):
+    def _on_remove_clicked(self, button):
         row = self.packages_list.get_selected_row()
         if row is None:
             return
         button.set_sensitive(False)
 
         pkg = row.pkg
-        self._filter = "installed" if dropdown.get_selected() == 1 else "all"
 
         def remove():
             try:
-                if self._filter == "installed":
+                if hasattr(pkg, "is_on_host"): #if installed
                     success = self.package_manager.remove_app(pkg) #pkg is app type 
                 else:
                     success = self.package_manager.remove_package(
