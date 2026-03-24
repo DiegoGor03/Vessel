@@ -114,7 +114,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.remove_button.connect("clicked", self._on_remove_clicked)
         action_box.append(self.remove_button)
 
-        # Export toggle button — only visible in apps mode
+        # Export toggle button — only visible in installed mode
         self.export_button = Gtk.Button(label="Add to host")
         self.export_button.set_sensitive(False)
         self.export_button.set_visible(False)
@@ -215,14 +215,19 @@ class PackageManagerApp(Adw.ApplicationWindow):
     # ------------------------------------------------------------------ #
     #  Search mode + filter                                                 #
     # ------------------------------------------------------------------ #
-    
+
     def _on_filter_changed(self, dropdown, _):
         self._filter = "installed" if dropdown.get_selected() == 1 else "all"
         self._clear_list()
         self._update_package_info(None)
 
         if self._filter == "installed":
+            self.install_button.set_visible(False)
+            self.export_button.set_visible(True)
             self._load_installed()
+        else:
+            self.install_button.set_visible(True)
+            self.export_button.set_visible(False)
 
     def _load_installed(self):
         def load():
@@ -271,12 +276,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
         for pkg in packages:
             row = Adw.ActionRow()
             row.set_title(pkg.name)
-            
-            #the idea is good, will be implemented as in the packages view, maybe as a color
-            #subtitle = pkg.container
-            #if getattr(pkg, "is_installed", False):
-            #    subtitle += " · Installed"
-
             row.set_subtitle(pkg.distro)
             row.pkg = pkg
             self.packages_list.append(row)
@@ -297,12 +296,11 @@ class PackageManagerApp(Adw.ApplicationWindow):
 
         if hasattr(pkg, "is_on_host"):
             self.package_desc_label.set_text(f"Exec: {pkg.exec_name}")
-            # Install is always grayed out in apps mode
-            self.install_button.set_sensitive(False)
+            # Install is hidden in installed mode, no need to touch it here
             # Remove uninstalls from the container
             self.remove_button.set_sensitive(True)
             # Export button label reflects current state
-            if app.is_on_host:
+            if pkg.is_on_host:
                 self.export_button.set_label("Remove from host")
                 self.export_button.remove_css_class("suggested-action")
                 self.export_button.add_css_class("destructive-action")
@@ -320,7 +318,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 detailed = self.package_manager.get_package_info(
                     pkg.name, pkg.container, pkg.distro
                 )
-                GLib.idle_add(self._update_package_info, detailed or package)
+                GLib.idle_add(self._update_package_info, detailed or pkg)
                 GLib.idle_add(lambda: self.install_button.set_sensitive(True))
                 GLib.idle_add(lambda: self.remove_button.set_sensitive(True))
 
@@ -371,7 +369,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                     success = self.package_manager.remove_app(pkg) #pkg is app type 
                 else:
                     success = self.package_manager.remove_package(
-                        pkg.name, pkg.container, package.distro                    
+                        pkg.name, pkg.container, pkg.distro                    
                     )
                 if success:
                     GLib.idle_add(self._show_info_dialog, "App removed successfully")
@@ -384,8 +382,8 @@ class PackageManagerApp(Adw.ApplicationWindow):
             finally:
                 GLib.idle_add(lambda: button.set_sensitive(True))
 
-            import threading
-            threading.Thread(target=remove, daemon=True).start()
+        import threading
+        threading.Thread(target=remove, daemon=True).start()
 
     def _on_export_clicked(self, button):
         row = self.packages_list.get_selected_row()
@@ -401,10 +399,11 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 self.package_manager._export_package(pkg.desktop_file, pkg.container)
             # Flip the state and refresh the row subtitle and button
             pkg.is_on_host = not pkg.is_on_host
-            GLib.idle_add(self._on_app_row_selected, row)
+            GLib.idle_add(self._on_row_selected, self.packages_list, row)
             GLib.idle_add(lambda: row.set_subtitle(
                 f"{pkg.container} · {'On host' if pkg.is_on_host else 'Not on host'}"
             ))
+            GLib.idle_add(lambda: button.set_sensitive(True))
 
         import threading
         threading.Thread(target=do_export, daemon=True).start()
