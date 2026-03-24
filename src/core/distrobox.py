@@ -24,7 +24,7 @@ class DistroboxManager:
     """Manages distrobox containers and operations."""
     
     # Prefix for containers managed by this application
-    CONTAINER_PREFIX = "distrobox-"
+    CONTAINER_PREFIX = "vessel-"
     
     DISTROS = {
         "debian": "debian:latest",
@@ -179,7 +179,7 @@ class DistroboxManager:
         existing_names = {c.name for c in containers}
         
         for distro in self.DISTROS.keys():
-            container_name = f"distrobox-{distro}"
+            container_name = f"vessel-{distro}"
             
             if container_name not in existing_names:
                 logger.info(f"Creating default {distro} container...")

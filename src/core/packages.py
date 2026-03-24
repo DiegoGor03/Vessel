@@ -32,12 +32,12 @@ class ContainerApp:
     icon: str
     desktop_file: str   # basename without .desktop
     container: str
+    distro: str
     is_on_host: bool = False  # True if already exported to the host
  
     def __repr__(self):
         return f"ContainerApp({self.name}, container={self.container}, on_host={self.is_on_host})"
-
-
+    
 class PackageManager:
     """Manages package discovery and operations across containers."""
     
@@ -90,8 +90,8 @@ class PackageManager:
         # Timeout settings (in seconds) for various operations
         self.TIMEOUT_SEARCH = 60      # Package search can be slow
         self.TIMEOUT_INFO = 45        # Getting package info
-        self.TIMEOUT_INSTALL = 300    # Installation can take a while
-        self.TIMEOUT_REMOVE = 120     # Removal operation
+        self.TIMEOUT_INSTALL = 1200   # Installation can take a while
+        self.TIMEOUT_REMOVE = 1200     # Removal operation
     
     def _run_in_container(
         self,
@@ -158,7 +158,7 @@ class PackageManager:
         elif distro == "arch":
             packages = self._parse_arch_search(output, query_lower, container_name)
         
-        logger.info(f"Found {len(packages)} packages matching '{query}' in {container_name}")
+        logger.info(f"Found {len(packages)} packages matching '{query}' in {container_name}, distro: {distro}")
         return packages
     
     def _parse_debian_search(self, output: str, query_lower: str, container_name: str) -> List[Package]:
@@ -180,7 +180,7 @@ class PackageManager:
                 if ' - ' in line:
                     pkg_name, description = line.split(' - ', 1)
                     pkg_name = pkg_name.strip()
-                    description = description.strip()
+                    pkg_desc = description.strip()
                 else:
                     pkg_name = line
                     description = ""
@@ -192,7 +192,7 @@ class PackageManager:
                 packages.append(Package(
                     name=pkg_name,
                     version="N/A",
-                    description=description,
+                    description=pkg_desc,
                     container=container_name,
                     distro=distro,
                     installed=False,
@@ -231,7 +231,7 @@ class PackageManager:
                         description=pkg_desc,
                         container=container_name,
                         distro=distro,
-                        installed=False
+                        installed=False,
                     ))
             except Exception as e:
                 logger.debug(f"Error parsing Fedora package line: {e}")
@@ -266,7 +266,7 @@ class PackageManager:
                         description=pkg_desc,
                         container=container_name,
                         distro=distro,
-                        installed=False
+                        installed=False,
                     ))
             except Exception as e:
                 logger.debug(f"Error parsing Arch package line: {e}")
@@ -368,6 +368,7 @@ class PackageManager:
             )
 
     def _find_desktop_file(self, package_name: str, container_name: str) -> Optional[str]:
+        #used for export/unexport if package name not found (e.g. libreoffice-math)
         """Find the .desktop file path inside the container for a given package.
         
         Tries distro package manager queries first (most reliable), then falls
@@ -410,6 +411,47 @@ class PackageManager:
         
         return None
  
+    def get_package_for_app(
+        self,
+        app: ContainerApp
+    ) -> Optional[str]:
+        """Find the package name that owns a ContainerApp's .desktop file."""
+        desktop_path = f"/usr/share/applications/{app.desktop_file}.desktop"
+        
+        #it finds the package given a .desktop file name
+        # Each tuple: (distro, command that prints 'pkgname' given a file path)
+        owner_cmds = [
+            ("debian", ["dpkg", "-S", desktop_path]),
+            ("fedora", ["rpm", "-qf", desktop_path]),
+            ("arch",   ["pacman", "-Qo", desktop_path]),
+        ]
+
+        for target_distro, cmd in owner_cmds:
+            if app.distro != target_distro:
+                continue
+            output = self._run_in_container(app.container, cmd, timeout=15)
+            if not output:
+                continue
+
+            if app.distro == "debian":
+                # Output: "libreoffice-math: /usr/share/applications/libreoffice-math.desktop"
+                pkg = output.split(":")[0].strip()
+                # Strip any arch qualifier (e.g. "vim:amd64" → "vim")
+                pkg = pkg.split(":")[0].strip()
+                return pkg
+
+            elif app.distro == "fedora":
+                # Output: "libreoffice-math-7.x86_64"
+                return self._strip_arch(output.strip().split()[0])
+
+            elif app.distro == "arch":
+                # Output: "/usr/share/applications/libreoffice-math.desktop is owned by libreoffice-fresh 24.x"
+                parts = output.strip().split("owned by")
+                if len(parts) == 2:
+                    return parts[1].strip().split()[0]
+
+        return None
+
     def remove_package(
         self,
         package_name: str,
@@ -440,6 +482,20 @@ class PackageManager:
             logger.error(f"Failed to remove {package_name}")
         
         return success
+
+    def remove_app(self, app: ContainerApp) -> bool:
+        """Remove an app by resolving its owning package first."""
+        pkg_name = self.get_package_for_app(app)
+
+        if pkg_name is None:
+            # Last resort: desktop_file basename is often the package name
+            logger.warning(
+                f"Could not resolve package for {app.name}, "
+                f"falling back to desktop_file name: {app.desktop_file}"
+            )
+            pkg_name = app.desktop_file
+
+        return self.remove_package(pkg_name, app.container, app.distro)
     
     def _unexport_package(self, package_name: str, container_name: str):
         """Remove the host-side desktop entry for a package before uninstalling it."""
@@ -487,18 +543,9 @@ class PackageManager:
                 except Exception as e:
                     logger.error(f"Error searching packages: {e}")
         
-        # Remove duplicates by name, keeping the first occurrence
-        seen_names: Set[str] = set()
-        unique_packages = []
-        
-        for pkg in all_packages:
-            if pkg.name not in seen_names:
-                seen_names.add(pkg.name)
-                unique_packages.append(pkg)
-        
-        return unique_packages
+        return all_packages
 
-    def get_apps_in_container(self, container_name: str) -> List["ContainerApp"]:
+    def get_apps_in_container(self, container_name: str, distro: str) -> List["Package"]:
         """Return GUI apps installed inside a container by scanning .desktop files.
 
         Mirrors the Rust get_apps_in_box logic:
@@ -559,6 +606,7 @@ class PackageManager:
                 icon=icon,
                 desktop_file=desktop_file,
                 container=container_name,
+                distro=distro,
                 is_on_host=host_desktop_name in host_desktop_files,
             ))
 
@@ -567,12 +615,12 @@ class PackageManager:
     
     def get_apps_all_containers(
         self, containers: List[Dict[str, str]]
-    ) -> List["ContainerApp"]:
+    ) -> List["Package"]:
         """Fetch installed GUI apps from all containers in parallel."""
         all_apps = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
-                executor.submit(self.get_apps_in_container, c["name"]): c
+                executor.submit(self.get_apps_in_container, c["name"], c["distro"]): c
                 for c in containers
             }
             for future in as_completed(futures):
