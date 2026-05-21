@@ -29,16 +29,16 @@ fi
 case "$OS" in
     fedora|rhel|centos|nobara)
         echo "Detected Fedora/RHEL-based distro. Installing dependencies..."
-        sudo dnf install -y python3-gobject gtk4 libadwaita-devel gobject-introspection-devel cairo-devel pkg-config glib2-devel
+        sudo dnf install -y python3-gobject gtk4 libadwaita-devel gobject-introspection-devel cairo-devel pkg-config glib2-devel podman
         ;;
     ubuntu|debian)
         echo "Detected Debian/Ubuntu. Installing dependencies..."
         sudo apt-get update
-        sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adwaita-1 libcairo2-dev pkg-config libglib2.0-dev
+        sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adwaita-1 libcairo2-dev pkg-config libglib2.0-dev podman
         ;;
     arch)
         echo "Detected Arch. Installing dependencies..."
-        sudo pacman -S --noconfirm python-gobject gtk4 libadwaita
+        sudo pacman -S --noconfirm python-gobject gtk4 libadwaita podman
         ;;
     *)
         # Try ID_LIKE as fallback
