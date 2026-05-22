@@ -76,6 +76,40 @@ class PackageManager:
         ".x86_64", ".i686", ".aarch64", ".armv7hl", ".ppc64le", ".s390x", ".noarch",
     }
 
+    # Patterns that identify non-user-facing packages
+    _EXCLUDE_PATTERNS = {
+        # Development & headers
+        "-dev", "-devel", "-headers", "-header",
+        # Debug & profiling
+        "-dbg", "-debug", "-debuginfo", "-debugsource", "-prof",
+        # Static libraries
+        "-static",
+        # Documentation
+        "-doc", "-docs", "-man", "-manpages",
+        # Locale/translation packs
+        "-locale-", "-lang-", "-l10n-", "-i18n-",
+        # Fonts
+        "fonts-", "font-",
+        # Plugins/codecs
+        "-plugin-", "-codec-",
+    }
+
+    _EXCLUDE_DESC_PATTERNS = {
+        "development files",
+        "header files",
+        "static library",
+        "debug symbols",
+        "debugging symbols",
+        "locale data",
+        "translation",
+        "documentation for",
+        "man pages",
+        "python bindings",
+        "perl bindings",
+        "shared library",
+        "runtime library",
+    }
+
     @staticmethod
     def _strip_arch(name: str) -> str:
         """Remove architecture suffix from a package name (e.g. 'vim.x86_64' → 'vim')."""
@@ -83,6 +117,28 @@ class PackageManager:
             if name.endswith(suffix):
                 return name[: -len(suffix)]
         return name
+
+    def _is_user_facing(self, name: str, description: str) -> bool:
+        """Return True only for packages a regular user would intentionally install."""
+        name_lower = name.lower()
+        desc_lower = description.lower()
+
+        for pattern in self._EXCLUDE_PATTERNS:
+            if pattern in name_lower:
+                return False
+
+        for pattern in self._EXCLUDE_DESC_PATTERNS:
+            if pattern in desc_lower:
+                return False
+
+        # Catch library packages by name (e.g. libgtk-3-0, libpython3.11)
+        # but NOT user-facing apps that happen to start with "lib" (libreoffice, libinput-tools)
+        if name_lower.startswith("lib"):
+            # If the description mentions "library" it's almost certainly not user-facing
+            if "library" in desc_lower or "libraries" in desc_lower:
+                return False
+
+        return True
 
     def __init__(self):
         """Initialize package manager."""
@@ -201,7 +257,7 @@ class PackageManager:
                 logger.debug(f"Error parsing Debian package line: {e}")
                 continue
 
-        return packages[:50]  # Limit results
+        return [p for p in packages if self._is_user_facing(p.name, p.description)]
     
     def _parse_fedora_search(self, output: str, query_lower: str, container_name: str) -> List[Package]:
         """Parse Fedora dnf search output."""
@@ -237,7 +293,7 @@ class PackageManager:
                 logger.debug(f"Error parsing Fedora package line: {e}")
                 continue
         
-        return packages[:50]  # Limit results
+        return [p for p in packages if self._is_user_facing(p.name, p.description)]
     
 
     def _parse_arch_search(self, output: str, query_lower: str, container_name: str) -> List[Package]:
@@ -281,7 +337,7 @@ class PackageManager:
 
             i += 1
         
-        return packages[:50]  # Limit results
+        return [p for p in packages if self._is_user_facing(p.name, p.description)]
     
     def get_package_info(
         self,
