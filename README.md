@@ -108,9 +108,9 @@ GPL3
 - [x] update button
 - [ ] flatpak integration
 - [ ] group packages
-- [ ] clean up search results
+- [x] clean up search results
 - [ ] rank results (eg. popularity)
 - [x] list installed packages
 - [ ] ability to choose which distros you use
 - [ ] packages icons
-- [ ] pacman bug
+- [x] pacman bug
