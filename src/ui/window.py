@@ -3,6 +3,7 @@
 import gi
 import logging
 import subprocess
+import threading
 from typing import List
 
 gi.require_version('Gtk', '4.0')
@@ -29,6 +30,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.distrobox_manager = DistroboxManager()
         self.package_manager = PackageManager()
         self.containers: List[Container] = []
+        self._search_timeout_id = None
 
         self._filter = "all"  # "all" or "installed"
 
@@ -149,7 +151,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 GLib.idle_add(self._show_error_dialog, str(e))
                 GLib.idle_add(lambda: self.refresh_button.set_sensitive(True))
 
-        import threading
         threading.Thread(target=initialize, daemon=True).start()
 
     def _refresh_containers_list(self):
@@ -174,7 +175,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
             except Exception as e:
                 logger.error(f"Error refreshing: {e}")
 
-        import threading
         threading.Thread(target=refresh, daemon=True).start()
 
     def _on_update_clicked(self, button):
@@ -209,7 +209,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 GLib.idle_add(lambda: button.set_sensitive(True))
                 GLib.idle_add(lambda: self.refresh_button.set_sensitive(True))
 
-        import threading
         threading.Thread(target=update, daemon=True).start()
 
     # ------------------------------------------------------------------ #
@@ -240,11 +239,23 @@ class PackageManagerApp(Adw.ApplicationWindow):
             except Exception as e:
                 logger.error(e)
 
-        import threading
         threading.Thread(target=load, daemon=True).start()
 
     def _on_search_changed(self, entry):
+        # Cancel the previous pending search if the user is still typing
+        if hasattr(self, "_search_timeout_id") and self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+            self._search_timeout_id = None
+
         query = entry.get_text()
+
+        # Schedule the actual search 00ms after the user stops typing
+        self._search_timeout_id = GLib.timeout_add(600, self._do_search, query)
+
+    def _do_search(self, query: str):
+        # GLib requires this callback to return False (or GLib.SOURCE_REMOVE)
+        # so it doesn't repeat like an interval timer
+        self._search_timeout_id = None
 
         def search():
             try:
@@ -267,8 +278,9 @@ class PackageManagerApp(Adw.ApplicationWindow):
             except Exception as e:
                 logger.error(e)
 
-        import threading
         threading.Thread(target=search, daemon=True).start()
+
+        return GLib.SOURCE_REMOVE  # don't repeat the timer
 
     def _display_packages(self, packages: List[Package]):
         #used for packages and "apps"
@@ -322,7 +334,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 GLib.idle_add(lambda: self.install_button.set_sensitive(True))
                 GLib.idle_add(lambda: self.remove_button.set_sensitive(True))
 
-            import threading
             threading.Thread(target=fetch_info, daemon=True).start()
 
     # ------------------------------------------------------------------ #
@@ -352,7 +363,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
             finally:
                 GLib.idle_add(lambda: button.set_sensitive(True))
 
-        import threading
         threading.Thread(target=install, daemon=True).start()
 
     def _on_remove_clicked(self, button):
@@ -382,7 +392,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
             finally:
                 GLib.idle_add(lambda: button.set_sensitive(True))
 
-        import threading
         threading.Thread(target=remove, daemon=True).start()
 
     def _on_export_clicked(self, button):
@@ -405,7 +414,6 @@ class PackageManagerApp(Adw.ApplicationWindow):
             ))
             GLib.idle_add(lambda: button.set_sensitive(True))
 
-        import threading
         threading.Thread(target=do_export, daemon=True).start()
 
     # ------------------------------------------------------------------ #
