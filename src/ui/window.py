@@ -31,6 +31,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self.package_manager = PackageManager()
         self.containers: List[Container] = []
         self._search_timeout_id = None
+        self._installed_cache: List[Package] = []
 
         self._filter = "all"  # "all" or "installed"
 
@@ -225,6 +226,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
             self.export_button.set_visible(True)
             self._load_installed()
         else:
+            self._installed_cache = []  # invalidate cache when leaving installed mode
             self.install_button.set_visible(True)
             self.export_button.set_visible(False)
 
@@ -234,7 +236,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                 results = self.package_manager.get_apps_all_containers(
                     [{"name": c.name, "distro": c.distro} for c in self.containers]
                 )
-                
+                self._installed_cache = results  # store for local filtering
                 GLib.idle_add(self._display_packages, results)
             except Exception as e:
                 logger.error(e)
@@ -253,17 +255,17 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self._search_timeout_id = GLib.timeout_add(600, self._do_search, query)
 
     def _do_search(self, query: str):
-        # GLib requires this callback to return False (or GLib.SOURCE_REMOVE)
-        # so it doesn't repeat like an interval timer
         self._search_timeout_id = None
 
         def search():
             try:
                 if self._filter == "installed":
-                    results = self.package_manager.get_apps_all_containers(
-                        [{"name": c.name, "distro": c.distro} for c in self.containers]
-                    )
-                    results = [r for r in results if query.lower() in r.name.lower()]
+                    # filter the local cache — no network/subprocess call needed
+                    results = [
+                        r for r in self._installed_cache
+                        if query.lower() in r.name.lower()
+                    ]
+                    GLib.idle_add(self._display_packages, results)
                 else:
                     if len(query) < 2:
                         GLib.idle_add(self._clear_list)
@@ -272,8 +274,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
                         query,
                         [{"name": c.name, "distro": c.distro} for c in self.containers]
                     )
-
-                GLib.idle_add(self._display_packages, results)
+                    GLib.idle_add(self._display_packages, results)
 
             except Exception as e:
                 logger.error(e)
@@ -425,9 +426,9 @@ class PackageManagerApp(Adw.ApplicationWindow):
         self._update_package_info(None)
 
         if self._filter == "installed":
+            self._installed_cache = []  # force a fresh fetch
             self._load_installed()
         else:
-            # re-trigger search with current query
             query = self.search_entry.get_text()
             if len(query) >= 2:
                 self._on_search_changed(self.search_entry)
