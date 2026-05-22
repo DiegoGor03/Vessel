@@ -251,7 +251,7 @@ class PackageManagerApp(Adw.ApplicationWindow):
 
         query = entry.get_text()
 
-        # Schedule the actual search 00ms after the user stops typing
+        # Schedule the actual search 600ms after the user stops typing
         self._search_timeout_id = GLib.timeout_add(600, self._do_search, query)
 
     def _do_search(self, query: str):

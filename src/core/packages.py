@@ -239,38 +239,47 @@ class PackageManager:
         
         return packages[:50]  # Limit results
     
+
     def _parse_arch_search(self, output: str, query_lower: str, container_name: str) -> List[Package]:
-        """Parse Arch pacman search output."""
+        """Parse Arch pacman -Ss output.
+
+        pacman -Ss produces two-line blocks:
+            repo/name version [flags]
+                Short description of the package
+        """
         packages = []
         distro = "arch"
         lines = output.strip().split('\n')
-        
-        for line in lines:
-            if not line.strip():
-                continue
-            
-            try:
-                parts = line.split()
-                if len(parts) >= 1:
-                    pkg_name = parts[0]
-                    
-                    # Only include if the package NAME contains the search query
-                    if query_lower not in pkg_name.lower():
-                        continue
-                    
-                    pkg_desc = ' '.join(parts[1:]) if len(parts) > 1 else ""
-                    
-                    packages.append(Package(
-                        name=pkg_name,
-                        version="N/A",
-                        description=pkg_desc,
-                        container=container_name,
-                        distro=distro,
-                        installed=False,
-                    ))
-            except Exception as e:
-                logger.debug(f"Error parsing Arch package line: {e}")
-                continue
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
+            # Package header lines are NOT indented; description lines ARE
+            if line and not line[0].isspace():
+                try:
+                    # "extra/vim 9.1.0016-1" → name = "vim"
+                    first_token = line.split()[0]           # "repo/name"
+                    pkg_name = first_token.split('/')[-1]   # strip repo prefix
+
+                    description = ""
+                    if i + 1 < len(lines) and lines[i + 1] and lines[i + 1][0].isspace():
+                        description = lines[i + 1].strip()
+                        i += 1  # consume the description line
+
+                    if query_lower in pkg_name.lower():
+                        packages.append(Package(
+                            name=pkg_name,
+                            version="N/A",
+                            description=description,
+                            container=container_name,
+                            distro=distro,
+                            installed=False,
+                        ))
+                except Exception as e:
+                    logger.debug(f"Error parsing Arch package line: {e}")
+
+            i += 1
         
         return packages[:50]  # Limit results
     
