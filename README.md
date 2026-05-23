@@ -39,9 +39,9 @@ The install script automatically:
 If you prefer to install manually, ensure you have:
 
 1. **System packages:**
-   - **Fedora/RHEL/Nobara**: `sudo dnf install python3-gobject gtk4 libadwaita-devel gobject-introspection-devel cairo-devel pkg-config glib2-devel`
-   - **Ubuntu/Debian**: `sudo apt-get install python3-gi gir1.2-gtk-4.0 gir1.2-adwaita-1 libcairo2-dev pkg-config libglib2.0-dev`
-   - **Arch**: `sudo pacman -S python-gobject gtk4 libadwaita`
+   - **Fedora/RHEL/Nobara**: `sudo dnf install python3-gobject gtk4 libadwaita-devel gobject-introspection-devel cairo-devel pkg-config glib2-devel podman`
+   - **Ubuntu/Debian**: `sudo apt-get install python3-gi gir1.2-gtk-4.0 gir1.2-adwaita-1 libcairo2-dev pkg-config libglib2.0-dev podman`
+   - **Arch**: `sudo pacman -S python-gobject gtk4 libadwaita podman`
 
 2. **Distrobox:**
    ```bash
