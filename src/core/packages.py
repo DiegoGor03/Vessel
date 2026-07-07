@@ -155,27 +155,44 @@ class PackageManager:
         command: List[str],
         timeout: int = 30
     ) -> Optional[str]:
-        """Execute a command inside a container via distrobox."""
+        """Execute a command inside a container via distrobox.
+
+        Force a stable C locale so package manager output remains
+        machine-parseable regardless of the container's configured language.
+        """
         try:
             result = subprocess.run(
-                ["distrobox", "enter", container_name, "--", *command],
+                [
+                    "distrobox",
+                    "enter",
+                    container_name,
+                    "--",
+                    "env",
+                    "LC_ALL=C",
+                    "LANG=C",
+                    *command,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                check=False
+                check=False,
             )
+
             # Return stdout if there's any content, regardless of return code.
             # Many package managers (apt, dnf) exit non-zero even on success
             # when they emit warnings to stderr — discarding stdout in that
             # case would silently swallow valid results.
             if result.stdout.strip():
                 return result.stdout
+
             if result.returncode != 0:
                 logger.debug(
                     f"Command failed in {container_name} "
                     f"(rc={result.returncode}): {result.stderr.strip()}"
                 )
+
             return None
+
         except subprocess.TimeoutExpired:
             logger.debug(f"Command timeout in {container_name} after {timeout}s")
             return None
